@@ -18,8 +18,8 @@ const client = axios.create({
   timeout: 15000
 });
 
-// Endpoint terbaru (Eksa style)
-app.get(['/terbaru', '/api/terbaru'], async (req, res) => {
+// Endpoint terbaru (Eksa & Standard style)
+app.get(['/terbaru', '/api/terbaru', '/home', '/api/home'], async (req, res) => {
   try {
     const { data } = await client.get('/');
     const $ = cheerio.load(data);
@@ -125,8 +125,8 @@ app.get(['/anime/:slug', '/api/anime/:slug'], async (req, res) => {
   }
 });
 
-// Endpoint streaming (Eksa style)
-app.get(['/stream/:slug', '/api/stream/:slug'], async (req, res) => {
+// Endpoint streaming (Eksa & Standard style)
+app.get(['/stream/:slug', '/api/stream/:slug', '/eps/:slug', '/api/eps/:slug'], async (req, res) => {
   try {
     const { slug } = req.params;
     const { data } = await client.get(`/${slug}/`);
