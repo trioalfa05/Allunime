@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Allunime - Nonton Anime Subtitle Indonesia Terbaru</title>
+  <meta name="description" content="Allunime - Tempat nonton dan download anime subtitle Indonesia terbaru. Update koleksi lengkap anime, donghua, dan movie dengan kualitas terbaik.">
+  <meta name="keywords" content="anime, nonton anime, subtitle indonesia, streaming anime, download anime">
+  <meta property="og:title" content="Allunime - Nonton Anime Subtitle Indonesia">
+  <meta property="og:description" content="Tempat nonton anime subtitle Indonesia terbaru dengan koleksi lengkap.">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <!-- ============================
+       Header / Navigation
+       ============================ -->
+  <header class="header" id="header">
+    <div class="header-inner">
+      <a href="#" class="logo" onclick="navigateTo('home'); return false;">
+        <div class="logo-icon">🎬</div>
+        <span class="logo-text">Allunime</span>
+      </a>
+
+      <div class="search-container">
+        <span class="search-icon">🔍</span>
+        <input 
+          type="text" 
+          id="search-input"
+          class="search-input" 
+          placeholder="Cari anime..." 
+          autocomplete="off"
+          oninput="handleSearchInput(event)"
+          onkeydown="handleSearchSubmit(event)"
+        >
+        <div class="search-results-dropdown" id="search-results"></div>
+      </div>
+
+      <nav class="nav-links" id="nav-links">
+        <a href="#" class="nav-link active" data-page="home" onclick="navigateTo('home'); return false;">Beranda</a>
+        <a href="#" class="nav-link" data-page="daftar" onclick="navigateTo('daftar'); return false;">Daftar Anime</a>
+        <a href="#" class="nav-link" data-page="genre" onclick="navigateTo('genre'); return false;">Genre</a>
+        <a href="#" class="nav-link" data-page="jadwal" onclick="navigateTo('jadwal'); return false;">Jadwal</a>
+      </nav>
+
+      <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================
+       Main Content
+       ============================ -->
+  <main class="main-wrapper">
+    <!-- API Status & Config (compact) -->
+    <div class="api-config-bar">
+      <div class="api-status">
+        <div class="api-status-dot"></div>
+        <span class="api-status-text">Menghubungkan...</span>
+      </div>
+      <input 
+        type="url" 
+        id="api-url-input" 
+        placeholder="Override API URL (opsional)" 
+        onkeydown="if(event.key==='Enter') updateApiUrl()"
+      >
+      <button class="api-config-btn" onclick="updateApiUrl()">Ganti API</button>
+    </div>
+
+    <!-- Notice Banner -->
+    <div class="notice-banner">
+      <strong>Selamat datang di Allunime!</strong> Tempat nonton dan download anime subtitle Indonesia update terbaru dan koleksi lengkap.
+      Data di-cache secara otomatis untuk meminimalkan request ke server. 
+      Jika API tidak tersedia, data demo akan ditampilkan. 
+      <a href="https://github.com/Kaede-No-Ki/otakudesu-rest-api" target="_blank" rel="noopener">Source API</a>
+    </div>
+
+    <!-- Main Content Area -->
+    <section id="main-content">
+      <!-- Content will be rendered by JavaScript -->
+      <div class="section-header">
+        <h2 class="section-title">Anime Terbaru</h2>
+        <div class="filter-tabs">
+          <button class="filter-tab active" onclick="filterAnime('semua')">Semua</button>
+          <button class="filter-tab" onclick="filterAnime('anime')">Anime</button>
+          <button class="filter-tab" onclick="filterAnime('donghua')">Donghua</button>
+        </div>
+      </div>
+      <div class="anime-grid" id="anime-grid">
+        <!-- Loading skeletons -->
+        <div class="skeleton-card"><div class="skeleton skeleton-thumb"></div><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text-short"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-thumb"></div><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text-short"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-thumb"></div><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text-short"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-thumb"></div><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text-short"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-thumb"></div><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text-short"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-thumb"></div><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text-short"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-thumb"></div><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text-short"></div></div>
+        <div class="skeleton-card"><div class="skeleton skeleton-thumb"></div><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text-short"></div></div>
+      </div>
+    </section>
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <!-- Sidebar content rendered by JavaScript -->
+    </aside>
+  </main>
+
+  <!-- ============================
+       Anime Detail Modal
+       ============================ -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <img src="https://placehold.co/900x280/1a1a24/e84393?text=Anime" alt="Anime Cover" id="modal-cover-img">
+        <div class="modal-header-overlay"></div>
+        <button class="modal-close" onclick="closeModal()" aria-label="Close modal">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body">
+        <!-- Modal content rendered by JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================
+       Toast Notification Container
+       ============================ -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- ============================
+       Footer
+       ============================ -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">ALLUNIME</div>
+      <p class="footer-text">
+        Allunime tidak menyimpan file apapun di server kami. Semua data di-fetch dari API pihak ketiga.<br>
+        © 2026 Allunime. All rights reserved.
+      </p>
+      <div class="footer-links">
+        <a href="#" onclick="navigateTo('home'); return false;">Beranda</a>
+        <a href="#" onclick="navigateTo('daftar'); return false;">Daftar Anime</a>
+        <a href="#" onclick="navigateTo('genre'); return false;">Genre</a>
+        <a href="#" onclick="navigateTo('jadwal'); return false;">Jadwal</a>
+        <a href="https://github.com/Kaede-No-Ki/otakudesu-rest-api" target="_blank" rel="noopener">API Source</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- JavaScript -->
+  <script src="app.js"></script>
+</body>
+</html>
