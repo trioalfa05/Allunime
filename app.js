@@ -27,6 +27,9 @@ const CONFIG = {
   //   https://github.com/eksa-arifa/otakudesuapi
   // ══════════════════════════════════════════════
   API_URLS: [
+    'https://otakudesuapieksa.vercel.app/api',
+    'https://unofficial-otakudesu-api-me.vercel.app/api',
+    'https://unofficial-otakudesu-api-ruang-kreatif.vercel.app/api',
     'https://otakudesu-api.vercel.app/api/v1',
     'https://otakudesu-unofficial-api.vercel.app/api/v1',
     'https://wajik-anime-api.vercel.app/otakudesu',
