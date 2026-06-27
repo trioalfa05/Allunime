@@ -27,7 +27,9 @@ const CONFIG = {
   //   https://github.com/eksa-arifa/otakudesuapi
   // ══════════════════════════════════════════════
   API_URLS: [
-    'https://otakudesuapieksa.vercel.app/api',
+    window.location.origin + '/api',
+    'https://otakudesuapieksa.vercel.app',
+    'https://otakudesuapi-allueto.vercel.app',
     'https://unofficial-otakudesu-api-me.vercel.app/api',
     'https://unofficial-otakudesu-api-ruang-kreatif.vercel.app/api',
     'https://otakudesu-api.vercel.app/api/v1',
@@ -356,14 +358,14 @@ class AnimeAPI {
     // Coba standard endpoint /home
     try {
       const targetUrl = proxy ? proxy + encodeURIComponent(cleanUrl + '/home') : cleanUrl + '/home';
-      const res = await fetch(targetUrl, { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(targetUrl, { signal: AbortSignal.timeout(2000) });
       if (res.ok) return { ok: true, type: 'standard' };
     } catch {}
 
     // Coba Eksa endpoint /terbaru
     try {
       const targetUrl = proxy ? proxy + encodeURIComponent(cleanUrl + '/terbaru') : cleanUrl + '/terbaru';
-      const res = await fetch(targetUrl, { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(targetUrl, { signal: AbortSignal.timeout(2000) });
       if (res.ok) return { ok: true, type: 'eksa' };
     } catch {}
 
@@ -371,19 +373,16 @@ class AnimeAPI {
   }
 
   async checkEndpointWithProxyFallback(url) {
-    // 1. Coba langsung
-    let check = await this.checkEndpoint(url);
-    if (check.ok) return { ok: true, type: check.type, proxy: '' };
+    // Jalankan pengecekan langsung dan proxy secara paralel untuk performa maksimal!
+    const checks = [
+      this.checkEndpoint(url).then(res => ({ ...res, proxy: '' })),
+      this.checkEndpoint(url, CONFIG.CORS_PROXIES[0]).then(res => ({ ...res, proxy: CONFIG.CORS_PROXIES[0] })),
+      this.checkEndpoint(url, CONFIG.CORS_PROXIES[1]).then(res => ({ ...res, proxy: CONFIG.CORS_PROXIES[1] }))
+    ];
 
-    // 2. Coba via CORS proxy 1
-    check = await this.checkEndpoint(url, CONFIG.CORS_PROXIES[0]);
-    if (check.ok) return { ok: true, type: check.type, proxy: CONFIG.CORS_PROXIES[0] };
-
-    // 3. Coba via CORS proxy 2
-    check = await this.checkEndpoint(url, CONFIG.CORS_PROXIES[1]);
-    if (check.ok) return { ok: true, type: check.type, proxy: CONFIG.CORS_PROXIES[1] };
-
-    return { ok: false };
+    const results = await Promise.all(checks);
+    const successful = results.find(r => r.ok);
+    return successful || { ok: false };
   }
 
   /**
