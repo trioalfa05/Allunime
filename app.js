@@ -345,9 +345,29 @@ const MOCK_GENRES = [
 // ============================
 class AnimeAPI {
   constructor() {
-    // Cek cached working URL dulu
     this.baseUrl = localStorage.getItem('allunime_working_api') || null;
+    this.apiType = localStorage.getItem('allunime_api_type') || 'standard';
     this._probePromise = null;
+  }
+
+  async checkEndpoint(url, proxy = '') {
+    const cleanUrl = url.replace(/\/$/, '');
+    
+    // Coba standard endpoint /home
+    try {
+      const targetUrl = proxy ? proxy + encodeURIComponent(cleanUrl + '/home') : cleanUrl + '/home';
+      const res = await fetch(targetUrl, { signal: AbortSignal.timeout(4000) });
+      if (res.ok) return { ok: true, type: 'standard' };
+    } catch {}
+
+    // Coba Eksa endpoint /terbaru
+    try {
+      const targetUrl = proxy ? proxy + encodeURIComponent(cleanUrl + '/terbaru') : cleanUrl + '/terbaru';
+      const res = await fetch(targetUrl, { signal: AbortSignal.timeout(4000) });
+      if (res.ok) return { ok: true, type: 'eksa' };
+    } catch {}
+
+    return { ok: false };
   }
 
   /**
@@ -356,52 +376,45 @@ class AnimeAPI {
    */
   async probeApis() {
     if (this.baseUrl) {
-      // Coba URL yang sudah diketahui bekerja
-      try {
-        const res = await fetch(this.baseUrl + '/home', {
-          signal: AbortSignal.timeout(6000)
-        });
-        if (res.ok) {
-          state.apiConnected = true;
-          updateApiStatus(true);
-          return this.baseUrl;
-        }
-      } catch { /* lanjut probe lain */ }
+      const check = await this.checkEndpoint(this.baseUrl, this._proxyPrefix);
+      if (check.ok) {
+        this.apiType = check.type;
+        state.apiConnected = true;
+        updateApiStatus(true);
+        return this.baseUrl;
+      }
     }
 
     // Coba setiap URL
     for (const url of CONFIG.API_URLS) {
-      try {
-        const res = await fetch(url + '/home', {
-          signal: AbortSignal.timeout(6000)
-        });
-        if (res.ok) {
-          this.baseUrl = url;
-          localStorage.setItem('allunime_working_api', url);
-          state.apiConnected = true;
-          updateApiStatus(true);
-          console.log('✅ API connected:', url);
-          return url;
-        }
-      } catch { continue; }
+      const check = await this.checkEndpoint(url);
+      if (check.ok) {
+        this.baseUrl = url;
+        this.apiType = check.type;
+        localStorage.setItem('allunime_working_api', url);
+        localStorage.setItem('allunime_api_type', check.type);
+        state.apiConnected = true;
+        updateApiStatus(true);
+        console.log(`✅ API connected: ${url} (${check.type})`);
+        return url;
+      }
     }
 
     // Coba via CORS proxy
     for (const proxy of CONFIG.CORS_PROXIES) {
       for (const url of CONFIG.API_URLS) {
-        try {
-          const proxyUrl = proxy + encodeURIComponent(url + '/home');
-          const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
-          if (res.ok) {
-            this.baseUrl = url;
-            this._proxyPrefix = proxy;
-            localStorage.setItem('allunime_working_api', url);
-            state.apiConnected = true;
-            updateApiStatus(true);
-            console.log('✅ API connected via proxy:', url);
-            return url;
-          }
-        } catch { continue; }
+        const check = await this.checkEndpoint(url, proxy);
+        if (check.ok) {
+          this.baseUrl = url;
+          this.apiType = check.type;
+          this._proxyPrefix = proxy;
+          localStorage.setItem('allunime_working_api', url);
+          localStorage.setItem('allunime_api_type', check.type);
+          state.apiConnected = true;
+          updateApiStatus(true);
+          console.log(`✅ API connected via proxy: ${url} (${check.type})`);
+          return url;
+        }
       }
     }
 
@@ -448,10 +461,6 @@ class AnimeAPI {
 
   /**
    * Fetch dengan cache + deduplication + stale-while-revalidate
-   *
-   * @param {string} endpoint  - URL endpoint
-   * @param {string} cacheKey  - Key untuk cache
-   * @param {string} cacheType - Tipe cache (home/detail/schedule/dll)
    */
   async cachedFetch(endpoint, cacheKey, cacheType) {
     const ttl = CONFIG.CACHE_TTL[cacheType] || CONFIG.CACHE_TTL.home;
@@ -478,53 +487,60 @@ class AnimeAPI {
     });
 
     if (stale) {
-      // Stale-while-revalidate: return stale, update di background
       console.log(`♻️ Stale cache [${cacheKey}], revalidating...`);
-      fetchPromise.catch(() => {}); // suppress error, kita punya stale
+      fetchPromise.catch(() => {});
       return stale;
     }
 
-    // Tidak ada cache sama sekali — harus tunggu fetch
     return fetchPromise;
   }
 
   // ── Endpoint methods ──
 
   async getHome() {
-    return this.cachedFetch('/home', 'home', 'home');
+    const endpoint = this.apiType === 'eksa' ? '/terbaru' : '/home';
+    return this.cachedFetch(endpoint, 'home', 'home');
   }
 
   async getOngoing(page = 1) {
-    return this.cachedFetch(`/ongoing/page/${page}`, `ongoing_p${page}`, 'ongoing');
+    const endpoint = this.apiType === 'eksa' ? '/terbaru' : `/ongoing/page/${page}`;
+    return this.cachedFetch(endpoint, `ongoing_p${page}`, 'ongoing');
   }
 
   async getComplete(page = 1) {
-    return this.cachedFetch(`/complete/page/${page}`, `complete_p${page}`, 'complete');
+    const endpoint = this.apiType === 'eksa' ? '/terbaru' : `/complete/page/${page}`;
+    return this.cachedFetch(endpoint, `complete_p${page}`, 'complete');
   }
 
   async getSearch(query) {
+    const endpoint = this.apiType === 'eksa' ? `/search/${encodeURIComponent(query)}` : `/search/${encodeURIComponent(query)}`;
     const key = `search_${query.toLowerCase().trim()}`;
-    return this.cachedFetch(`/search/${encodeURIComponent(query)}`, key, 'search');
+    return this.cachedFetch(endpoint, key, 'search');
   }
 
   async getAnimeDetail(slug) {
-    return this.cachedFetch(`/anime/${slug}`, `detail_${slug}`, 'detail');
+    const endpoint = `/anime/${slug}`;
+    return this.cachedFetch(endpoint, `detail_${slug}`, 'detail');
   }
 
   async getEpisode(slug) {
-    return this.cachedFetch(`/eps/${slug}`, `eps_${slug}`, 'episode');
+    const endpoint = this.apiType === 'eksa' ? `/stream/${slug}` : `/eps/${slug}`;
+    return this.cachedFetch(endpoint, `eps_${slug}`, 'episode');
   }
 
   async getSchedule() {
+    if (this.apiType === 'eksa') return null; // Eksa does not support schedule natively
     return this.cachedFetch('/schedule', 'schedule', 'schedule');
   }
 
   async getGenres() {
-    return this.cachedFetch('/genres', 'genres', 'genres');
+    const endpoint = this.apiType === 'eksa' ? '/genrelist' : '/genres';
+    return this.cachedFetch(endpoint, 'genres', 'genres');
   }
 
   async getGenreAnime(genreId, page = 1) {
-    return this.cachedFetch(`/genres/${genreId}/page/${page}`, `genre_${genreId}_p${page}`, 'genre_anime');
+    const endpoint = `/genres/${genreId}/page/${page}`;
+    return this.cachedFetch(endpoint, `genre_${genreId}_p${page}`, 'genre_anime');
   }
 }
 
@@ -866,18 +882,31 @@ function normalizeAnimeList(data) {
   else if (data.result && Array.isArray(data.result)) list = data.result;
   else if (data.search && Array.isArray(data.search)) list = data.search;
 
-  return list.map(item => ({
-    title: item.title || item.name || item.judul || '',
-    thumb: item.thumb || item.thumbnail || item.poster || item.image || item.cover || '',
-    episode: item.episode || item.total_episode || item.eps || '',
-    type: item.type || item.status || 'TV',
-    date: item.date || item.updated_on || item.updated || item.time || '',
-    slug: item.slug || item.endpoint || item.id || extractSlug(item.title),
-    genres: item.genres || item.genre || [],
-    year: item.year || item.season || '',
-    score: item.score || item.rating || '',
-    synopsis: item.synopsis || item.sinopsis || item.description || '',
-  }));
+  return list.map(item => {
+    let cleanSlug = item.slug || item.endpoint || item.id || '';
+    if (!cleanSlug && item.link) {
+      const parts = item.link.replace(/\/$/, '').split('/');
+      cleanSlug = parts[parts.length - 1] || '';
+    }
+    if (cleanSlug) {
+      cleanSlug = cleanSlug.replace(/^\//, ''); // remove leading slash
+    } else {
+      cleanSlug = extractSlug(item.title);
+    }
+
+    return {
+      title: item.title || item.name || item.judul || '',
+      thumb: item.thumb || item.thumbnail || item.poster || item.image || item.cover || '',
+      episode: item.episode || item.total_episode || item.eps || '',
+      type: item.type || item.status || 'TV',
+      date: item.date || item.updated_on || item.updated || item.time || item.day_updated || '',
+      slug: cleanSlug,
+      genres: item.genres || item.genre || [],
+      year: item.year || item.season || '',
+      score: item.score || item.rating || '',
+      synopsis: item.synopsis || item.sinopsis || item.description || '',
+    };
+  });
 }
 
 function extractSlug(title) {
@@ -918,7 +947,7 @@ async function openAnimeDetail(cardElement) {
 
   const genres = detail?.genres || anime.genres || ['Action', 'Fantasy'];
   const synopsis = detail?.synopsis || anime.synopsis || 'Synopsis tidak tersedia. Silakan deploy API OtakuDesu untuk melihat sinopsis lengkap.';
-  const episodes = detail?.episode_list || detail?.episodes || [];
+  const episodes = detail?.episode_list || detail?.episodes || detail?.list_episode || detail?.episode || [];
   const title = detail?.title || anime.title;
   const score = detail?.score || anime.score || '⭐ N/A';
   const status = detail?.status || anime.type || 'Ongoing';
@@ -939,7 +968,11 @@ async function openAnimeDetail(cardElement) {
       ${episodes.length > 0
         ? episodes.map(ep => {
             const epTitle = typeof ep === 'string' ? ep : (ep.title || ep.episode || `Ep ${ep.number || ''}`);
-            const epSlug = typeof ep === 'string' ? '' : (ep.slug || ep.endpoint || '');
+            let epSlug = typeof ep === 'string' ? '' : (ep.slug || ep.endpoint || ep.link || '');
+            if (epSlug.includes('http') || epSlug.includes('/')) {
+              const parts = epSlug.replace(/\/$/, '').split('/');
+              epSlug = parts[parts.length - 1] || '';
+            }
             return `<button class="episode-btn" onclick="playEpisode('${epSlug}')" title="${epTitle}">${epTitle.replace(/.*Episode\s*/i, 'Ep ')}</button>`;
           }).join('')
         : Array.from({length: Math.min(parseInt(anime.episode) || 12, 24)}, (_, i) =>
