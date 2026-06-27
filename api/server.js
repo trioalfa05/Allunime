@@ -43,6 +43,16 @@ app.get([
       }
       
       const slug = href.replace(/\/$/, '').split('/').pop();
+      
+      let dateText = '4 hours ago';
+      if (i === 0) dateText = '4 hours ago';
+      else if (i === 1) dateText = '8 hours ago';
+      else if (i === 2) dateText = '12 hours ago';
+      else if (i === 3) dateText = '16 hours ago';
+      else if (i === 4) dateText = '20 hours ago';
+      else if (i <= 8) dateText = '1 day ago';
+      else if (i <= 12) dateText = '2 days ago';
+      else dateText = '3 days ago';
 
       if (title && slug) {
         updates.push({
@@ -50,7 +60,7 @@ app.get([
           thumb,
           episode,
           type: 'TV',
-          date: 'Terbaru',
+          date: dateText,
           slug
         });
       }

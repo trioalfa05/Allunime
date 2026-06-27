@@ -507,7 +507,7 @@ function renderAnimeCard(anime, index = 0) {
   const episode = anime.episode || '';
 
   return `
-    <div class="anime-card" data-slug="${anime.slug || ''}" data-index="${index}" onclick="openAnimeDetail(this)">
+    <div class="anime-card" data-slug="${anime.slug || ''}" data-index="${index}" onclick="handleCardClick(this)">
       <div class="anime-thumb">
         <img src="${anime.thumb || 'https://placehold.co/300x400/1a1a24/6c6c85?text=No+Image'}" 
              alt="${anime.title}" loading="lazy"
@@ -1778,4 +1778,17 @@ function formatRelativeTime(timestamp) {
   if (hours < 24) return `${hours} jam lalu`;
   const days = Math.floor(hours / 24);
   return `${days} hari lalu`;
+}
+
+function handleCardClick(cardElement) {
+  const slug = cardElement?.dataset?.slug;
+  if (!slug) return;
+  
+  if (slug.includes('-episode-') || slug.includes('-eps-')) {
+    // Kartu episode terbaru -> Putar langsung!
+    playEpisode(slug);
+  } else {
+    // Kartu detail anime utama -> Buka modal!
+    openAnimeDetail(cardElement);
+  }
 }
