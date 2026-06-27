@@ -875,12 +875,23 @@ function normalizeAnimeList(data) {
   if (!data) return [];
 
   let list = [];
-  if (Array.isArray(data)) list = data;
-  else if (data.data && Array.isArray(data.data)) list = data.data;
-  else if (data.ongoing && Array.isArray(data.ongoing)) list = data.ongoing;
-  else if (data.anime && Array.isArray(data.anime)) list = data.anime;
-  else if (data.result && Array.isArray(data.result)) list = data.result;
-  else if (data.search && Array.isArray(data.search)) list = data.search;
+  if (Array.isArray(data)) {
+    list = data;
+  } else if (data.home && data.home.ongoing && Array.isArray(data.home.ongoing)) {
+    list = data.home.ongoing;
+  } else if (data.home && data.home.complete && Array.isArray(data.home.complete)) {
+    list = data.home.complete;
+  } else if (data.data && Array.isArray(data.data)) {
+    list = data.data;
+  } else if (data.ongoing && Array.isArray(data.ongoing)) {
+    list = data.ongoing;
+  } else if (data.anime && Array.isArray(data.anime)) {
+    list = data.anime;
+  } else if (data.result && Array.isArray(data.result)) {
+    list = data.result;
+  } else if (data.search && Array.isArray(data.search)) {
+    list = data.search;
+  }
 
   return list.map(item => {
     let cleanSlug = item.slug || item.endpoint || item.id || '';
@@ -914,6 +925,17 @@ function extractSlug(title) {
   return title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').substring(0, 50);
 }
 
+function getAnimeSlug(cleanSlug) {
+  if (!cleanSlug) return '';
+  if (cleanSlug.includes('-episode-')) {
+    return cleanSlug.split('-episode-')[0];
+  }
+  if (cleanSlug.includes('-eps-')) {
+    return cleanSlug.split('-eps-')[0];
+  }
+  return cleanSlug;
+}
+
 // ============================
 // Anime Detail Modal
 // ============================
@@ -941,7 +963,16 @@ async function openAnimeDetail(cardElement) {
       const data = await api.getAnimeDetail(slug);
       detail = data?.data || data;
     } catch (err) {
-      console.warn('Detail fetch failed:', err.message);
+      const baseSlug = getAnimeSlug(slug);
+      if (baseSlug !== slug) {
+        try {
+          const data = await api.getAnimeDetail(baseSlug);
+          detail = data?.data || data;
+        } catch (_) {}
+      }
+      if (!detail) {
+        console.warn('Detail fetch failed:', err.message);
+      }
     }
   }
 
