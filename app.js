@@ -354,10 +354,11 @@ class AnimeAPI {
 
   async checkEndpoint(url, proxy = '') {
     const cleanUrl = url.replace(/\/$/, '');
+    const cb = '?t=' + Date.now();
     
     // Coba standard endpoint /home
     try {
-      const targetUrl = proxy ? proxy + encodeURIComponent(cleanUrl + '/home') : cleanUrl + '/home';
+      const targetUrl = proxy ? proxy + encodeURIComponent(cleanUrl + '/home' + cb) : cleanUrl + '/home' + cb;
       const res = await fetch(targetUrl, { signal: AbortSignal.timeout(2000) });
       if (res.ok) {
         const json = await res.json();
@@ -369,7 +370,7 @@ class AnimeAPI {
 
     // Coba Eksa endpoint /terbaru
     try {
-      const targetUrl = proxy ? proxy + encodeURIComponent(cleanUrl + '/terbaru') : cleanUrl + '/terbaru';
+      const targetUrl = proxy ? proxy + encodeURIComponent(cleanUrl + '/terbaru' + cb) : cleanUrl + '/terbaru' + cb;
       const res = await fetch(targetUrl, { signal: AbortSignal.timeout(2000) });
       if (res.ok) {
         const json = await res.json();
@@ -460,9 +461,12 @@ class AnimeAPI {
 
     await RateLimiter.wait();
 
+    const sep = endpoint.includes('?') ? '&' : '?';
+    const cleanEndpoint = endpoint + sep + 't=' + Date.now();
+
     const url = this._proxyPrefix
-      ? this._proxyPrefix + encodeURIComponent(this.baseUrl + endpoint)
-      : this.baseUrl + endpoint;
+      ? this._proxyPrefix + encodeURIComponent(this.baseUrl + cleanEndpoint)
+      : this.baseUrl + cleanEndpoint;
 
     const res = await fetch(url, {
       headers: { 'Accept': 'application/json' },
