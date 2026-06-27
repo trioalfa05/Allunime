@@ -19,9 +19,15 @@ const client = axios.create({
 });
 
 // Endpoint terbaru (Eksa & Standard style)
-app.get(['/terbaru', '/api/terbaru', '/home', '/api/home'], async (req, res) => {
+app.get([
+  '/terbaru', '/api/terbaru', 
+  '/home', '/api/home', 
+  '/ongoing/page/:page', '/api/ongoing/page/:page'
+], async (req, res) => {
   try {
-    const { data } = await client.get('/');
+    const page = req.params.page || req.query.page || 1;
+    const path = page > 1 ? `/page/${page}/` : '/';
+    const { data } = await client.get(path);
     const $ = cheerio.load(data);
     const updates = [];
 
