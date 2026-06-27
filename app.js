@@ -359,14 +359,24 @@ class AnimeAPI {
     try {
       const targetUrl = proxy ? proxy + encodeURIComponent(cleanUrl + '/home') : cleanUrl + '/home';
       const res = await fetch(targetUrl, { signal: AbortSignal.timeout(2000) });
-      if (res.ok) return { ok: true, type: 'standard' };
+      if (res.ok) {
+        const json = await res.json();
+        if (json && (Array.isArray(json) || json.data || json.home || json.ongoing)) {
+          return { ok: true, type: 'standard' };
+        }
+      }
     } catch {}
 
     // Coba Eksa endpoint /terbaru
     try {
       const targetUrl = proxy ? proxy + encodeURIComponent(cleanUrl + '/terbaru') : cleanUrl + '/terbaru';
       const res = await fetch(targetUrl, { signal: AbortSignal.timeout(2000) });
-      if (res.ok) return { ok: true, type: 'eksa' };
+      if (res.ok) {
+        const json = await res.json();
+        if (json && (Array.isArray(json) || json.data || json.terbaru || Array.isArray(json.ongoing))) {
+          return { ok: true, type: 'eksa' };
+        }
+      }
     } catch {}
 
     return { ok: false };
