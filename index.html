@@ -40,6 +40,7 @@
       <nav class="nav-links" id="nav-links">
         <a href="#" class="nav-link active" data-page="home" onclick="navigateTo('home'); return false;">Beranda</a>
         <a href="#" class="nav-link" data-page="daftar" onclick="navigateTo('daftar'); return false;">Daftar Anime</a>
+        <a href="#" class="nav-link" id="nav-account" onclick="openAccountModal(); return false;">👤 Masuk</a>
       </nav>
 
       <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Toggle menu">
@@ -54,29 +55,6 @@
        Main Content
        ============================ -->
   <main class="main-wrapper">
-    <!-- API Status & Config (compact) -->
-    <div class="api-config-bar">
-      <div class="api-status">
-        <div class="api-status-dot"></div>
-        <span class="api-status-text">Menghubungkan...</span>
-      </div>
-      <input 
-        type="url" 
-        id="api-url-input" 
-        placeholder="Override API URL (opsional)" 
-        onkeydown="if(event.key==='Enter') updateApiUrl()"
-      >
-      <button class="api-config-btn" onclick="updateApiUrl()">Ganti API</button>
-    </div>
-
-    <!-- Notice Banner -->
-    <div class="notice-banner">
-      <strong>Selamat datang di Allunime!</strong> Tempat nonton dan download anime subtitle Indonesia update terbaru dan koleksi lengkap.
-      Data di-cache secara otomatis untuk meminimalkan request ke server. 
-      Jika API tidak tersedia, data demo akan ditampilkan. 
-      <a href="https://github.com/Kaede-No-Ki/otakudesu-rest-api" target="_blank" rel="noopener">Source API</a>
-    </div>
-
     <!-- Main Content Area -->
     <section id="main-content">
       <!-- Content will be rendered by JavaScript -->
@@ -119,6 +97,54 @@
       </div>
       <div class="modal-body" id="modal-body">
         <!-- Modal content rendered by JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================
+       Account Management Modal
+       ============================ -->
+  <div class="modal-overlay" id="account-modal-overlay">
+    <div class="modal-content modal-account">
+      <div class="modal-header">
+        <h2>👤 Manajemen Akun</h2>
+        <button class="modal-close" onclick="closeAccountModal()">✕</button>
+      </div>
+      <div class="modal-body-account">
+        <div id="account-logged-out-view">
+          <p>Buat profil baru atau masuk ke akun lokal Anda untuk menyimpan favorit dan riwayat nonton secara realtime.</p>
+          <div class="account-form-group">
+            <input type="text" id="username-input" class="account-input" placeholder="Masukkan Username..." onkeydown="if(event.key==='Enter') loginOrCreateAccount()">
+            <button class="account-btn" onclick="loginOrCreateAccount()">Masuk / Buat</button>
+          </div>
+          <div id="existing-accounts-section" style="margin-top: 20px; display: none;">
+            <h4>Pilih Akun Terdaftar:</h4>
+            <div class="accounts-list" id="accounts-list-container"></div>
+          </div>
+        </div>
+        <div id="account-logged-in-view" style="display: none;">
+          <div class="account-profile-header">
+            <div class="account-avatar">👤</div>
+            <div class="account-profile-info">
+              <h3 id="current-username-display">Username</h3>
+              <p>Akun Lokal Aktif</p>
+            </div>
+          </div>
+          <div class="account-stats">
+            <div class="account-stat-item">
+              <span class="account-stat-val" id="bookmarks-count">0</span>
+              <span class="account-stat-label">Favorit</span>
+            </div>
+            <div class="account-stat-item">
+              <span class="account-stat-val" id="recents-count">0</span>
+              <span class="account-stat-label">Dilihat</span>
+            </div>
+          </div>
+          <div class="account-actions">
+            <button class="account-btn account-btn-sec" onclick="showFavoritesList()">⭐ Lihat Bookmark saya</button>
+            <button class="account-btn account-btn-danger" onclick="logoutAccount()">Keluar</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

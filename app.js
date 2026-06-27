@@ -928,8 +928,16 @@ async function openAnimeDetail(cardElement) {
   const score = detail?.score || anime.score || '⭐ N/A';
   const status = detail?.status || anime.type || 'Ongoing';
 
+  const isFav = AccountManager.isBookmarked(slug);
+  const animeThumb = detail?.thumb || anime.thumb || '';
+
   modalBody.innerHTML = `
-    <h2 class="modal-title">${title}</h2>
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 5px;">
+      <h2 class="modal-title" style="margin: 0;">${title}</h2>
+      <button class="bookmark-btn ${isFav ? 'active' : ''}" onclick="toggleBookmarkFromModal('${slug}', '${title.replace(/'/g, "\\'")}', '${animeThumb.replace(/'/g, "\\'")}')">
+        <span>${isFav ? '⭐ Di-Bookmark' : '⭐ Bookmark'}</span>
+      </button>
+    </div>
     <div class="modal-meta">
       <span class="modal-meta-tag">${status}</span>
       <span class="modal-meta-tag">${score}</span>
@@ -949,7 +957,7 @@ async function openAnimeDetail(cardElement) {
               const parts = epSlug.replace(/\/$/, '').split('/');
               epSlug = parts[parts.length - 1] || '';
             }
-            return `<button class="episode-btn" onclick="playEpisode('${epSlug}')" title="${epTitle}">${epTitle.replace(/.*Episode\s*/i, 'Ep ')}</button>`;
+            return `<button class="episode-btn" onclick="playEpisode('${epSlug}', '${slug}')" title="${epTitle}">${epTitle.replace(/.*Episode\s*/i, 'Ep ')}</button>`;
           }).join('')
         : Array.from({length: Math.min(parseInt(anime.episode) || 12, 24)}, (_, i) =>
             `<button class="episode-btn" onclick="showToast('Deploy API untuk menonton episode')">Ep ${i + 1}</button>`
@@ -964,24 +972,73 @@ function closeModal() {
   document.body.style.overflow = '';
 }
 
-async function playEpisode(slug) {
+async function playEpisode(slug, parentAnimeSlug = '') {
   if (!slug) {
-    showToast('Deploy API untuk menonton episode ini', 'error');
+    showToast('Link episode tidak valid', 'error');
     return;
   }
 
+  // Tutup detail modal
+  closeModal();
+
+  const mainContent = $('#main-content');
+  if (mainContent) {
+    // Show loading skeletons inside main content
+    mainContent.innerHTML = `
+      <div class="stream-container">
+        <div class="stream-player-wrapper skeleton" style="height: 400px; display: flex; align-items: center; justify-content: center; background-color: var(--bg-secondary); border-radius: var(--radius-lg);">
+          <div style="font-size: 1.2rem; color: var(--text-secondary); animation: pulse 1.5s infinite;">📺 Memuat video player...</div>
+        </div>
+      </div>
+    `;
+  }
+
   try {
-    const data = await api.getEpisode(slug);
-    const epData = data?.data || data;
-    const streamUrl = epData?.stream_url || epData?.streaming_url || '';
-    if (streamUrl) {
-      window.open(streamUrl, '_blank');
-      showToast('Membuka streaming...', 'success');
-    } else {
-      showToast('URL streaming tidak ditemukan', 'error');
+    // 1. Fetch streaming data
+    const streamData = await api.getEpisode(slug);
+    const streamInfo = streamData?.data || streamData;
+    
+    // 2. Fetch parent anime detail
+    if (!parentAnimeSlug) {
+      parentAnimeSlug = slug.replace(/-episode-\d+/, '');
+    }
+
+    let animeDetail;
+    try {
+      const detailData = await api.getAnimeDetail(parentAnimeSlug);
+      animeDetail = detailData?.data || detailData;
+    } catch {
+      const baseSlug = getAnimeSlug(parentAnimeSlug);
+      const detailData = await api.getAnimeDetail(baseSlug);
+      animeDetail = detailData?.data || detailData;
+      parentAnimeSlug = baseSlug;
+    }
+
+    if (!animeDetail) {
+      throw new Error('Detail anime tidak ditemukan');
+    }
+
+    // 3. Render streaming player view
+    renderStreamPage(slug, parentAnimeSlug, streamInfo, animeDetail);
+
+    // 4. Catat ke riwayat nonton jika ada user login
+    const currentUser = AccountManager.getCurrentUser();
+    if (currentUser) {
+      const epList = animeDetail.episode_list || [];
+      const getCleanSlug = (item) => {
+        let s = item.slug || item.endpoint || item.link || '';
+        if (s.includes('http') || s.includes('/')) {
+          s = s.replace(/\/$/, '').split('/').pop();
+        }
+        return s;
+      };
+      const currentEp = epList.find(ep => getCleanSlug(ep) === slug);
+      const epTitle = currentEp ? currentEp.title : `Episode ${slug.split('-').pop()}`;
+      AccountManager.addRecent(animeDetail.title, parentAnimeSlug, epTitle, slug, animeDetail.thumb);
     }
   } catch (err) {
-    showToast('Gagal memuat episode: ' + err.message, 'error');
+    showToast('Gagal memuat streaming: ' + err.message, 'error');
+    loadHomeData();
   }
 }
 
@@ -1165,37 +1222,61 @@ function renderSidebar() {
   const sidebar = $('#sidebar');
   if (!sidebar) return;
 
+  const currentUser = AccountManager.getCurrentUser();
+  const acc = AccountManager.getActiveAccount();
+  const recents = (acc && acc.recents) ? acc.recents : [];
+
+  let recentsHtml = '';
+  if (!currentUser) {
+    recentsHtml = `
+      <div class="empty-state" style="padding: var(--space-md); margin-top: 10px; border: 1px dashed var(--border-color); border-radius: var(--radius-md);">
+        <div class="empty-state-icon" style="font-size: 1.5rem; margin-bottom: 5px;">👤</div>
+        <div class="empty-state-text" style="font-size: 0.85rem; font-weight: 600;">Belum Masuk Akun</div>
+        <div class="empty-state-sub" style="font-size: 0.75rem;">Masuk akun untuk menyimpan riwayat nonton Anda secara realtime.</div>
+      </div>
+    `;
+  } else if (recents.length === 0) {
+    recentsHtml = `
+      <div class="empty-state" style="padding: var(--space-md); margin-top: 10px; border: 1px dashed var(--border-color); border-radius: var(--radius-md);">
+        <div class="empty-state-icon" style="font-size: 1.5rem; margin-bottom: 5px;">📺</div>
+        <div class="empty-state-text" style="font-size: 0.85rem; font-weight: 600;">Belum Ada Riwayat</div>
+        <div class="empty-state-sub" style="font-size: 0.75rem;">Mulai menonton anime untuk melihat daftar riwayat di sini.</div>
+      </div>
+    `;
+  } else {
+    recentsHtml = `
+      <div class="recent-list">
+        ${recents.map(r => {
+          const timeString = formatRelativeTime(r.watchedAt);
+          return `
+            <div class="recent-item animate-in" onclick="playEpisode('${r.epSlug}', '${r.animeSlug}')">
+              <div class="recent-item-thumb">
+                <img src="${r.thumb || 'https://placehold.co/100x150/1a1a24/6c6c85?text=?'}" alt="${r.animeTitle}" loading="lazy" onerror="this.src='https://placehold.co/100x150/1a1a24/6c6c85?text=?'">
+              </div>
+              <div class="recent-item-info">
+                <div class="recent-item-title">${r.animeTitle}</div>
+                <div class="recent-item-episode">${r.epTitle}</div>
+                <div class="recent-item-time">🕒 ${timeString}</div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
   sidebar.innerHTML = `
     <div class="now-playing">
       <div class="now-playing-icon">▶</div>
       <div class="now-playing-info">
-        <div class="now-playing-title">Selamat Datang di Allunime!</div>
-        <div class="now-playing-source">Nonton anime subtitle Indonesia</div>
+        <div class="now-playing-title">${currentUser ? `Halo, ${currentUser}!` : 'Selamat Datang di Allunime!'}</div>
+        <div class="now-playing-source">${currentUser ? 'Lanjutkan menonton favoritmu' : 'Nonton anime subtitle Indonesia'}</div>
       </div>
-    </div>
-
-    <div class="discord-widget">
-      <h3>Join Discord Allunime</h3>
-      <a href="#" class="discord-banner" onclick="showToast('Discord coming soon! 🎮')">
-        <svg viewBox="0 0 292 80" xmlns="http://www.w3.org/2000/svg">
-          <g>
-            <path d="M61.7958 16.494C57.0736 14.2846 52.0244 12.6789 46.7456 11.7646C46.0973 12.9367 45.3399 14.5132 44.8177 15.7673C39.2062 14.9234 33.6463 14.9234 28.138 15.7673C27.6159 14.5132 26.8413 12.9367 26.1872 11.7646C20.9027 12.6789 15.8477 14.2903 11.1255 16.5054C1.60078 30.6037 -0.981215 44.3444 0.309785 57.8928C6.62708 62.4891 12.7493 65.3222 18.7682 67.2294C20.2543 65.2102 21.5797 63.0681 22.7237 60.8132C20.5543 59.9991 18.4757 58.9997 16.5088 57.8415C17.0309 57.4529 17.5415 57.0472 18.0349 56.63C29.9 62.1325 42.8958 62.1325 54.6084 56.63C55.1076 57.0472 55.6182 57.4529 56.1346 57.8415C54.1619 58.9997 52.0776 59.9991 49.9081 60.8189C51.0521 63.0681 52.3718 65.2159 53.8636 67.2351C59.8882 65.3279 66.0162 62.4948 72.3335 57.8928C73.8425 42.1351 69.7968 28.5204 61.7958 16.494ZM24.3568 49.3911C20.7644 49.3911 17.8082 46.0882 17.8082 42.0647C17.8082 38.0412 20.7015 34.7326 24.3568 34.7326C28.0121 34.7326 30.9683 38.0355 30.9055 42.0647C30.9112 46.0882 28.0121 49.3911 24.3568 49.3911ZM48.2862 49.3911C44.6938 49.3911 41.7376 46.0882 41.7376 42.0647C41.7376 38.0412 44.6309 34.7326 48.2862 34.7326C51.9415 34.7326 54.8977 38.0355 54.8349 42.0647C54.8349 46.0882 51.9415 49.3911 48.2862 49.3911Z"/>
-            <path d="M98.0293 26.1285H113.693C117.394 26.1285 120.477 26.6658 122.943 27.7404C125.409 28.815 127.257 30.3412 128.487 32.3192C129.717 34.2972 130.332 36.6352 130.332 39.3332C130.332 42.0075 129.717 44.3455 128.487 46.3472C127.257 48.3253 125.409 49.8634 122.943 50.9617C120.477 52.036 117.394 52.5733 113.693 52.5733H98.0293V26.1285ZM113.091 46.8608C115.581 46.8608 117.519 46.2098 118.903 44.9078C120.288 43.6058 120.981 41.7415 120.981 39.3148C120.981 36.9115 120.288 35.0592 118.903 33.7572C117.519 32.4552 115.581 31.8042 113.091 31.8042H107.018V46.8608H113.091Z"/>
-            <path d="M139.427 52.5765V26.1317H149.097V52.5765H139.427Z"/>
-            <path d="M178.86 40.7005C178.86 40.9992 178.837 41.4588 178.79 42.0795H160.394C160.697 43.5332 161.401 44.6435 162.506 45.4102C163.612 46.1768 164.975 46.5602 166.597 46.5602C168.575 46.5602 170.319 45.9328 171.828 44.6782L176.704 48.9872C174.214 51.7088 170.697 53.0695 166.152 53.0695C163.215 53.0695 160.616 52.5085 158.357 51.3865C156.097 50.2408 154.348 48.6572 153.107 46.6355C151.866 44.6138 151.246 42.3115 151.246 39.7285C151.246 37.1692 151.854 34.8788 153.072 32.8572C154.313 30.8118 155.983 29.2282 158.08 28.1062C160.2 26.9605 162.565 26.3878 165.175 26.3878C167.689 26.3878 169.96 26.9252 171.987 27.9998C174.015 29.0745 175.605 30.6362 176.757 32.6815C177.935 34.7032 178.524 37.0528 178.524 39.7285L178.86 40.7005ZM165.302 32.3495C163.891 32.3495 162.681 32.7448 161.67 33.5352C160.659 34.3255 160.026 35.4122 159.77 36.7952H170.599C170.344 35.4358 169.722 34.3612 168.735 33.5708C167.747 32.7568 166.597 32.3495 165.302 32.3495Z"/>
-            <path d="M204.38 40.3805V52.5765H195.37V49.5158C193.767 51.5612 191.313 52.5838 188.007 52.5838C186.007 52.5838 184.241 52.2242 182.71 51.5048C181.202 50.7618 180.02 49.7535 179.165 48.4802C178.31 47.2068 177.882 45.7768 177.882 44.1932C177.882 41.5628 178.855 39.5412 180.802 38.1285C182.749 36.7158 185.729 36.0095 189.74 36.0095H194.822C194.822 33.4975 193.36 32.2415 190.435 32.2415C188.363 32.2415 186.04 32.8855 183.467 34.1738L180.802 28.6908C184.503 26.7128 188.467 25.7232 192.694 25.7232C196.757 25.7232 199.843 26.6178 201.952 28.4072C204.062 30.1965 205.104 32.9538 205.08 36.6792L204.38 40.3805ZM196.112 44.6415C196.888 43.8985 197.388 42.9565 197.388 41.8155V40.5418H193.28C190.378 40.5418 188.927 41.3915 188.927 43.0912C188.927 43.8342 189.226 44.4498 189.823 44.9398C190.42 45.4298 191.185 45.6748 192.117 45.6748C193.517 45.6748 194.935 45.3785 196.112 44.6415Z"/>
-            <path d="M219.97 52.5765V18.7012H229.61V52.5765H219.97Z"/>
-            <path d="M282.584 39.6052V52.5765H273.04V40.0322C273.04 38.0105 272.68 36.5212 271.962 35.5628C271.243 34.6045 270.176 34.1252 268.762 34.1252C267.208 34.1252 265.956 34.6875 265.008 35.8095C264.06 36.9315 263.583 38.5385 263.583 40.6312V52.5765H253.914V40.0322C253.914 36.7608 252.593 35.1252 249.951 35.1252C248.42 35.1252 247.18 35.6872 246.233 36.8092C245.285 37.9312 244.808 39.5385 244.808 41.6312V52.5765H235.139V26.6305H244.302V29.6912C245.391 28.5218 246.678 27.6272 248.163 27.0072C249.672 26.3638 251.314 26.0422 253.09 26.0422C255.077 26.0422 256.821 26.4725 258.325 27.3335C259.828 28.1945 261.014 29.4208 261.88 31.0122C263.131 29.4445 264.618 28.2302 266.34 27.3692C268.062 26.4845 269.934 26.0422 271.958 26.0422C275.425 26.0422 278.112 27.1168 280.018 29.2662C281.924 31.3918 282.878 34.4525 282.878 38.4485L282.584 39.6052Z"/>
-          </g>
-        </svg>
-      </a>
     </div>
 
     <div class="popular-widget">
-      <h3>Lagi Rame</h3>
-      <div class="popular-list">
-        ${MOCK_POPULAR.map(item => renderPopularItem(item)).join('')}
-      </div>
+      <h3>🕒 Recent Watched</h3>
+      ${recentsHtml}
     </div>
   `;
 }
@@ -1206,6 +1287,7 @@ function renderSidebar() {
 function initApp() {
   renderSidebar();
   loadHomeData();
+  updateAccountModalView(); // Memuat status login dan ikon akun di nav
 
   // Cleanup cache lama saat startup
   CacheManager.cleanup();
@@ -1233,9 +1315,20 @@ function initApp() {
     });
   }
 
+  // Account modal close on overlay click
+  const accountModalOverlay = $('#account-modal-overlay');
+  if (accountModalOverlay) {
+    accountModalOverlay.addEventListener('click', (e) => {
+      if (e.target === accountModalOverlay) closeAccountModal();
+    });
+  }
+
   // ESC to close modal
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') {
+      closeModal();
+      closeAccountModal();
+    }
   });
 
   // Set API URL yang sudah tersimpan
@@ -1246,3 +1339,443 @@ function initApp() {
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
+
+// ============================
+// Account & Profile Management
+// ============================
+const AccountManager = {
+  getAccounts() {
+    const data = localStorage.getItem('allunime_accounts');
+    return data ? JSON.parse(data) : [];
+  },
+  
+  saveAccounts(accounts) {
+    localStorage.setItem('allunime_accounts', JSON.stringify(accounts));
+  },
+  
+  getCurrentUser() {
+    return localStorage.getItem('allunime_current_user') || null;
+  },
+  
+  setCurrentUser(username) {
+    if (username) {
+      localStorage.setItem('allunime_current_user', username);
+    } else {
+      localStorage.removeItem('allunime_current_user');
+    }
+  },
+  
+  createOrLoginAccount(username) {
+    const cleanUsername = username.trim();
+    if (!cleanUsername) return null;
+    
+    let accounts = this.getAccounts();
+    let account = accounts.find(a => a.username.toLowerCase() === cleanUsername.toLowerCase());
+    
+    if (!account) {
+      account = {
+        username: cleanUsername,
+        bookmarks: [],
+        recents: []
+      };
+      accounts.push(account);
+      this.saveAccounts(accounts);
+    }
+    
+    this.setCurrentUser(account.username);
+    return account;
+  },
+  
+  getActiveAccount() {
+    const current = this.getCurrentUser();
+    if (!current) return null;
+    const accounts = this.getAccounts();
+    return accounts.find(a => a.username === current) || null;
+  },
+  
+  updateActiveAccount(updatedAccount) {
+    let accounts = this.getAccounts();
+    const idx = accounts.findIndex(a => a.username === updatedAccount.username);
+    if (idx !== -1) {
+      accounts[idx] = updatedAccount;
+      this.saveAccounts(accounts);
+    }
+  },
+  
+  addBookmark(anime) {
+    const acc = this.getActiveAccount();
+    if (!acc) return false;
+    
+    if (!acc.bookmarks) acc.bookmarks = [];
+    const exists = acc.bookmarks.some(b => b.slug === anime.slug);
+    if (!exists) {
+      acc.bookmarks.push({
+        title: anime.title,
+        slug: anime.slug,
+        thumb: anime.thumb,
+        type: anime.type || 'TV'
+      });
+      this.updateActiveAccount(acc);
+      return true;
+    }
+    return false;
+  },
+  
+  removeBookmark(slug) {
+    const acc = this.getActiveAccount();
+    if (!acc) return false;
+    
+    if (!acc.bookmarks) acc.bookmarks = [];
+    const initialLen = acc.bookmarks.length;
+    acc.bookmarks = acc.bookmarks.filter(b => b.slug !== slug);
+    if (acc.bookmarks.length !== initialLen) {
+      this.updateActiveAccount(acc);
+      return true;
+    }
+    return false;
+  },
+  
+  isBookmarked(slug) {
+    const acc = this.getActiveAccount();
+    if (!acc) return false;
+    return acc.bookmarks && acc.bookmarks.some(b => b.slug === slug);
+  },
+  
+  addRecent(animeTitle, animeSlug, epTitle, epSlug, thumb) {
+    const acc = this.getActiveAccount();
+    if (!acc) return;
+    
+    if (!acc.recents) acc.recents = [];
+    
+    // Hapus duplikat
+    acc.recents = acc.recents.filter(r => r.epSlug !== epSlug);
+    
+    acc.recents.unshift({
+      animeTitle,
+      animeSlug,
+      epTitle,
+      epSlug,
+      thumb,
+      watchedAt: Date.now()
+    });
+    
+    if (acc.recents.length > 10) {
+      acc.recents.pop();
+    }
+    
+    this.updateActiveAccount(acc);
+    renderSidebar();
+  }
+};
+
+// ============================
+// UI Account Actions
+// ============================
+function openAccountModal() {
+  const modal = $('#account-modal-overlay');
+  if (!modal) return;
+  modal.classList.add('active');
+  document.body.style.overflow = 'hidden';
+  updateAccountModalView();
+}
+
+function closeAccountModal() {
+  const modal = $('#account-modal-overlay');
+  if (modal) modal.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+function updateAccountModalView() {
+  const currentUser = AccountManager.getCurrentUser();
+  const loggedOutView = $('#account-logged-out-view');
+  const loggedInView = $('#account-logged-in-view');
+  const navAccount = $('#nav-account');
+  
+  if (currentUser) {
+    if (loggedOutView) loggedOutView.style.display = 'none';
+    if (loggedInView) loggedInView.style.display = 'block';
+    
+    const acc = AccountManager.getActiveAccount();
+    if (acc) {
+      const displayUser = $('#current-username-display');
+      const bookCount = $('#bookmarks-count');
+      const recCount = $('#recents-count');
+      if (displayUser) displayUser.textContent = acc.username;
+      if (bookCount) bookCount.textContent = acc.bookmarks ? acc.bookmarks.length : 0;
+      if (recCount) recCount.textContent = acc.recents ? acc.recents.length : 0;
+      
+      if (navAccount) {
+        navAccount.textContent = `👤 ${acc.username}`;
+      }
+    }
+  } else {
+    if (loggedOutView) loggedOutView.style.display = 'block';
+    if (loggedInView) loggedInView.style.display = 'none';
+    
+    if (navAccount) {
+      navAccount.textContent = '👤 Masuk';
+    }
+    
+    const accounts = AccountManager.getAccounts();
+    const existingSec = $('#existing-accounts-section');
+    const container = $('#accounts-list-container');
+    
+    if (accounts.length > 0) {
+      if (existingSec) existingSec.style.display = 'block';
+      if (container) {
+        container.innerHTML = accounts.map(a => `
+          <div class="accounts-list-item" onclick="loginWithExisting('${a.username.replace(/'/g, "\\'")}')">
+            <span>${a.username}</span>
+            <span class="accounts-list-item-select">Masuk &raquo;</span>
+          </div>
+        `).join('');
+      }
+    } else {
+      if (existingSec) existingSec.style.display = 'none';
+    }
+  }
+}
+
+function loginOrCreateAccount() {
+  const input = $('#username-input');
+  if (!input) return;
+  const username = input.value.trim();
+  if (!username) {
+    showToast('Username tidak boleh kosong', 'error');
+    return;
+  }
+  
+  const acc = AccountManager.createOrLoginAccount(username);
+  if (acc) {
+    showToast(`Selamat datang, ${acc.username}!`, 'success');
+    input.value = '';
+    updateAccountModalView();
+    renderSidebar();
+    closeAccountModal();
+  }
+}
+
+function loginWithExisting(username) {
+  const acc = AccountManager.createOrLoginAccount(username);
+  if (acc) {
+    showToast(`Selamat datang kembali, ${acc.username}!`, 'success');
+    updateAccountModalView();
+    renderSidebar();
+    closeAccountModal();
+  }
+}
+
+function logoutAccount() {
+  const current = AccountManager.getCurrentUser();
+  AccountManager.setCurrentUser(null);
+  showToast(`Sampai jumpa, ${current}!`, 'info');
+  updateAccountModalView();
+  renderSidebar();
+  closeAccountModal();
+}
+
+function showFavoritesList() {
+  const acc = AccountManager.getActiveAccount();
+  if (!acc || !acc.bookmarks || acc.bookmarks.length === 0) {
+    showToast('Belum ada anime favorit disimpan', 'info');
+    return;
+  }
+  
+  closeAccountModal();
+  
+  const mainContent = $('#main-content');
+  if (mainContent) {
+    mainContent.innerHTML = `
+      <div class="section-header">
+        <h2 class="section-title">Bookmark / Favorit Saya</h2>
+      </div>
+      <div class="anime-grid" id="anime-grid">
+        ${acc.bookmarks.map((a, i) => renderAnimeCard(a, i)).join('')}
+      </div>
+    `;
+  }
+}
+
+// ============================
+// Streaming Page Rendering & Action
+// ============================
+function renderStreamPage(episodeSlug, animeSlug, streamInfo, animeDetail) {
+  const mainContent = $('#main-content');
+  if (!mainContent) return;
+
+  const streamUrl = streamInfo.stream_url || streamInfo.streaming_url || '';
+  const mirrors = streamInfo.mirrors || [];
+  const epList = animeDetail.episode_list || [];
+
+  const getCleanSlug = (item) => {
+    let s = item.slug || item.endpoint || item.link || '';
+    if (s.includes('http') || s.includes('/')) {
+      s = s.replace(/\/$/, '').split('/').pop();
+    }
+    return s;
+  };
+
+  const currentIndex = epList.findIndex(ep => getCleanSlug(ep) === episodeSlug);
+  
+  let prevSlug = '';
+  let nextSlug = '';
+  
+  if (currentIndex !== -1) {
+    // Di OtakuDesu, list episode terbalik (terbaru di atas)
+    if (currentIndex + 1 < epList.length) {
+      prevSlug = getCleanSlug(epList[currentIndex + 1]);
+    }
+    if (currentIndex - 1 >= 0) {
+      nextSlug = getCleanSlug(epList[currentIndex - 1]);
+    }
+  }
+
+  const isFav = AccountManager.isBookmarked(animeSlug);
+  const currentEp = epList[currentIndex];
+  const epTitle = currentEp ? currentEp.title : `Episode ${episodeSlug.split('-').pop()}`;
+
+  mainContent.innerHTML = `
+    <div class="stream-container">
+      <div class="nav-breadcrumbs" style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: var(--space-xs);">
+        <a href="#" onclick="loadHomeData(); return false;" style="color: var(--text-link); text-decoration: none;">Beranda</a> &raquo; 
+        <a href="#" onclick="showAnimeFromStream('${animeSlug}'); return false;" style="color: var(--text-link); text-decoration: none;">${animeDetail.title}</a> &raquo; 
+        <span>${epTitle}</span>
+      </div>
+
+      <div class="stream-player-wrapper animate-in">
+        <iframe id="main-player-iframe" class="stream-player-iframe" src="${streamUrl}" allowfullscreen="true" webkitallowfullscreen="true" mozallowfullscreen="true" frameborder="0"></iframe>
+      </div>
+
+      <div class="stream-controls">
+        <div class="stream-servers-box">
+          <label for="server-select">Pilih Server:</label>
+          <select id="server-select" class="stream-server-select" onchange="changePlayerMirror(this.value)">
+            <option value="${streamUrl}">Default Server (B-TUBE)</option>
+            ${mirrors.map(m => `<option value="${m.url}">${m.name}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="stream-nav-buttons">
+          <button class="stream-nav-btn ${prevSlug ? '' : 'disabled'}" onclick="${prevSlug ? `playEpisode('${prevSlug}', '${animeSlug}')` : ''}">&laquo; Prev</button>
+          <button class="stream-nav-btn stream-nav-btn-main" onclick="showAnimeFromStream('${animeSlug}')">Semua Episode</button>
+          <button class="stream-nav-btn ${nextSlug ? '' : 'disabled'}" onclick="${nextSlug ? `playEpisode('${nextSlug}', '${animeSlug}')` : ''}">Next &raquo;</button>
+        </div>
+      </div>
+
+      <div class="stream-meta-card animate-in">
+        <div class="stream-meta-header">
+          <div class="stream-meta-title-box">
+            <h2>${animeDetail.title}</h2>
+            <p>${epTitle}</p>
+          </div>
+          <button class="bookmark-btn ${isFav ? 'active' : ''}" onclick="toggleBookmarkFromStream('${animeSlug}', '${animeDetail.title.replace(/'/g, "\\'")}', '${animeDetail.thumb}')">
+            <span>${isFav ? '⭐ Di-Bookmark' : '⭐ Bookmark'}</span>
+          </button>
+        </div>
+        
+        <div style="display: flex; gap: var(--space-md); flex-wrap: wrap;">
+          <img src="${animeDetail.thumb}" alt="${animeDetail.title}" style="width: 100px; height: 140px; border-radius: var(--radius-md); object-fit: cover;">
+          <div style="flex: 1; min-width: 250px;">
+            <div class="modal-meta" style="margin-bottom: 10px;">
+              ${animeDetail.genres.map(g => `<span class="modal-meta-tag">${g}</span>`).join('')}
+            </div>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">${animeDetail.synopsis || 'Sinopsis tidak tersedia.'}</p>
+          </div>
+        </div>
+
+        <h3 style="font-size: 1rem; border-top: 1px solid var(--border-color); padding-top: var(--space-md); margin-top: var(--space-sm);">Semua Episode:</h3>
+        <div class="episode-list" style="max-height: 150px; overflow-y: auto; padding: 5px;">
+          ${epList.map(ep => {
+            const clean = getCleanSlug(ep);
+            const isCurrent = clean === episodeSlug;
+            return `<button class="episode-btn ${isCurrent ? 'active' : ''}" onclick="playEpisode('${clean}', '${animeSlug}')">${ep.title.replace(/.*Episode\s*/i, 'Ep ')}</button>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function changePlayerMirror(url) {
+  const iframe = $('#main-player-iframe');
+  if (iframe && url) {
+    iframe.src = url;
+    showToast('Mengubah server player...', 'info');
+  }
+}
+
+function showAnimeFromStream(animeSlug) {
+  const tempCard = document.createElement('div');
+  tempCard.dataset.slug = animeSlug;
+  openAnimeDetail(tempCard);
+}
+
+function toggleBookmarkFromStream(slug, title, thumb) {
+  const currentUser = AccountManager.getCurrentUser();
+  if (!currentUser) {
+    showToast('Harap masuk ke akun terlebih dahulu', 'error');
+    openAccountModal();
+    return;
+  }
+
+  const btn = $('.bookmark-btn');
+  const isFav = AccountManager.isBookmarked(slug);
+  
+  if (isFav) {
+    AccountManager.removeBookmark(slug);
+    if (btn) {
+      btn.classList.remove('active');
+      btn.querySelector('span').textContent = '⭐ Bookmark';
+    }
+    showToast('Dihapus dari Bookmark', 'info');
+  } else {
+    AccountManager.addBookmark({ slug, title, thumb });
+    if (btn) {
+      btn.classList.add('active');
+      btn.querySelector('span').textContent = '⭐ Di-Bookmark';
+    }
+    showToast('Ditambahkan ke Bookmark', 'success');
+  }
+  updateAccountModalView();
+}
+
+function toggleBookmarkFromModal(slug, title, thumb) {
+  const currentUser = AccountManager.getCurrentUser();
+  if (!currentUser) {
+    showToast('Harap masuk ke akun terlebih dahulu', 'error');
+    openAccountModal();
+    return;
+  }
+
+  const btn = $('.modal-body .bookmark-btn');
+  const isFav = AccountManager.isBookmarked(slug);
+  
+  if (isFav) {
+    AccountManager.removeBookmark(slug);
+    if (btn) {
+      btn.classList.remove('active');
+      btn.querySelector('span').textContent = '⭐ Bookmark';
+    }
+    showToast('Dihapus dari Bookmark', 'info');
+  } else {
+    AccountManager.addBookmark({ slug, title, thumb });
+    if (btn) {
+      btn.classList.add('active');
+      btn.querySelector('span').textContent = '⭐ Di-Bookmark';
+    }
+    showToast('Ditambahkan ke Bookmark', 'success');
+  }
+  updateAccountModalView();
+}
+
+function formatRelativeTime(timestamp) {
+  const diff = Date.now() - timestamp;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Baru saja';
+  if (mins < 60) return `${mins} menit lalu`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} jam lalu`;
+  const days = Math.floor(hours / 24);
+  return `${days} hari lalu`;
+}
