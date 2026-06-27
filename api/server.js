@@ -23,7 +23,7 @@ const client = axios.create({
 });
 
 // Endpoint terbaru (Eksa style)
-app.get('/terbaru', async (req, res) => {
+app.get(['/terbaru', '/api/terbaru'], async (req, res) => {
   try {
     const { data } = await client.get('/');
     const $ = cheerio.load(data);
@@ -62,7 +62,7 @@ app.get('/terbaru', async (req, res) => {
 });
 
 // Endpoint detail (Eksa style)
-app.get('/anime/:slug', async (req, res) => {
+app.get(['/anime/:slug', '/api/anime/:slug'], async (req, res) => {
   try {
     const { slug } = req.params;
     const { data } = await client.get(`/anime/${slug}`);
@@ -103,7 +103,7 @@ app.get('/anime/:slug', async (req, res) => {
 });
 
 // Endpoint streaming (Eksa style)
-app.get('/stream/:slug', async (req, res) => {
+app.get(['/stream/:slug', '/api/stream/:slug'], async (req, res) => {
   try {
     const { slug } = req.params;
     const { data } = await client.get(`/${slug}`);
@@ -122,7 +122,7 @@ app.get('/stream/:slug', async (req, res) => {
 });
 
 // Endpoint search (Eksa style)
-app.get('/search/:query', async (req, res) => {
+app.get(['/search/:query', '/api/search/:query'], async (req, res) => {
   try {
     const { query } = req.params;
     const { data } = await client.get(`/?s=${encodeURIComponent(query)}`);
