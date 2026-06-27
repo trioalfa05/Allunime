@@ -6,20 +6,16 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 
-const TARGET_URL = 'https://154.26.137.28';
-
-// Bypass SSL raw IP
-const agent = new (require('https').Agent)({  
-  rejectUnauthorized: false
-});
+const TARGET_URL = 'https://anime-indo.cc';
 
 const client = axios.create({
   baseURL: TARGET_URL,
   headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9,id;q=0.8'
   },
-  httpsAgent: agent,
-  timeout: 10000
+  timeout: 15000
 });
 
 // Endpoint terbaru (Eksa style)
@@ -29,30 +25,29 @@ app.get(['/terbaru', '/api/terbaru'], async (req, res) => {
     const $ = cheerio.load(data);
     const updates = [];
 
-    // Parse AnimeSail homepage items
-    $('.listupd .utao, .listupd .block').each((i, el) => {
-      const a = $(el).find('a');
-      const title = $(el).find('h3, .title, .entry-title').text().trim();
-      const img = $(el).find('img');
-      const thumb = img.attr('data-lazy-src') || img.attr('data-src') || img.attr('src') || '';
-      const episode = $(el).find('.epx, .epsub .ep').text().trim();
-      const type = $(el).find('.typez, .epsub .type').text().trim() || 'TV';
-      const link = a.attr('href') || '';
+    $('.ngiri .menu a').each((i, el) => {
+      const href = $(el).attr('href') || '';
+      const title = $(el).find('.list-anime p').text().trim();
+      const img = $(el).find('.list-anime img').attr('data-original') || $(el).find('.list-anime img').attr('src') || '';
+      const episode = $(el).find('.list-anime span.eps').text().trim();
       
-      let slug = '';
-      if (link) {
-        const parts = link.replace(/\/$/, '').split('/');
-        slug = parts[parts.length - 1];
+      let thumb = img;
+      if (thumb && thumb.startsWith('/')) {
+        thumb = TARGET_URL + thumb;
       }
+      
+      const slug = href.replace(/\/$/, '').split('/').pop();
 
-      updates.push({
-        title,
-        thumb,
-        episode,
-        type,
-        date: 'Terbaru',
-        slug
-      });
+      if (title && slug) {
+        updates.push({
+          title,
+          thumb,
+          episode,
+          type: 'TV',
+          date: 'Terbaru',
+          slug
+        });
+      }
     });
 
     res.json(updates);
@@ -64,30 +59,58 @@ app.get(['/terbaru', '/api/terbaru'], async (req, res) => {
 // Endpoint detail (Eksa style)
 app.get(['/anime/:slug', '/api/anime/:slug'], async (req, res) => {
   try {
-    const { slug } = req.params;
-    const { data } = await client.get(`/anime/${slug}`);
+    let slug = req.params.slug;
+    
+    // Check if it is an episode page slug (doesn't have /anime/ or contains -episode-)
+    let isEpisode = slug.includes('-episode-') || !req.originalUrl.includes('/anime/');
+    let targetPath = `/anime/${slug}/`;
+
+    if (isEpisode) {
+      try {
+        const { data: epData } = await client.get(`/${slug}/`);
+        const $ep = cheerio.load(epData);
+        const mainLink = $ep('a:contains("Semua Episode")').attr('href') || $ep('a[href^="/anime/"]').attr('href') || '';
+        if (mainLink) {
+          targetPath = mainLink;
+        } else {
+          const mainSlug = slug.replace(/-episode-\d+/, '');
+          targetPath = `/anime/${mainSlug}/`;
+        }
+      } catch {
+        const mainSlug = slug.replace(/-episode-\d+/, '');
+        targetPath = `/anime/${mainSlug}/`;
+      }
+    }
+
+    const { data } = await client.get(targetPath);
     const $ = cheerio.load(data);
 
-    const title = $('.entry-title').text().trim();
-    const thumb = $('.thumb img, .info-left img').attr('src') || '';
-    const synopsis = $('.entry-content p, .sinopsis p').text().trim();
+    const title = $('.detail h2').first().text().trim() || $('.title').first().text().trim();
     
+    const imgEl = $('.detail img');
+    let thumb = imgEl.attr('src') || '';
+    if (thumb && thumb.startsWith('/')) {
+      thumb = TARGET_URL + thumb;
+    }
+
+    const synopsis = $('.detail p').text().trim();
+
     const genres = [];
-    $('.genres a, .genres-content a').each((i, el) => {
+    $('.detail li a').each((i, el) => {
       genres.push($(el).text().trim());
     });
 
     const episodes = [];
-    $('.eplister ul li, .listeps ul li').each((i, el) => {
-      const a = $(el).find('a');
-      const epTitle = a.text().trim();
-      const epLink = a.attr('href') || '';
-      let epSlug = '';
-      if (epLink) {
-        const parts = epLink.replace(/\/$/, '').split('/');
-        epSlug = parts[parts.length - 1];
+    $('.ep a').each((i, el) => {
+      const epTitle = $(el).text().trim();
+      const epHref = $(el).attr('href') || '';
+      const epSlug = epHref.replace(/\/$/, '').split('/').pop();
+      if (epSlug) {
+        episodes.push({
+          title: `Episode ${epTitle}`,
+          slug: epSlug
+        });
       }
-      episodes.push({ title: epTitle, slug: epSlug });
     });
 
     res.json({
@@ -95,7 +118,7 @@ app.get(['/anime/:slug', '/api/anime/:slug'], async (req, res) => {
       thumb,
       synopsis,
       genres,
-      episode_list: episodes
+      episode_list: episodes.reverse() // Balik agar episode 1 di bawah
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -106,15 +129,30 @@ app.get(['/anime/:slug', '/api/anime/:slug'], async (req, res) => {
 app.get(['/stream/:slug', '/api/stream/:slug'], async (req, res) => {
   try {
     const { slug } = req.params;
-    const { data } = await client.get(`/${slug}`);
+    const { data } = await client.get(`/${slug}/`);
     const $ = cheerio.load(data);
 
-    // Cari url embed iframe
-    const iframe = $('.play-embed iframe, .embed-holder iframe, #player iframe, iframe');
-    const streamUrl = iframe.attr('src') || '';
+    const iframeSrc = $('#tontonin').attr('src') || '';
+    let streamUrl = iframeSrc;
+    if (streamUrl && streamUrl.startsWith('/')) {
+      streamUrl = TARGET_URL + streamUrl;
+    }
+
+    const mirrors = [];
+    $('a.server').each((i, el) => {
+      let videoUrl = $(el).attr('data-video') || '';
+      if (videoUrl && videoUrl.startsWith('/')) {
+        videoUrl = TARGET_URL + videoUrl;
+      }
+      mirrors.push({
+        name: $(el).text().trim(),
+        url: videoUrl
+      });
+    });
 
     res.json({
-      stream_url: streamUrl
+      stream_url: streamUrl,
+      mirrors: mirrors
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -125,28 +163,30 @@ app.get(['/stream/:slug', '/api/stream/:slug'], async (req, res) => {
 app.get(['/search/:query', '/api/search/:query'], async (req, res) => {
   try {
     const { query } = req.params;
-    const { data } = await client.get(`/?s=${encodeURIComponent(query)}`);
+    const { data } = await client.get(`/search.php?q=${encodeURIComponent(query)}`);
     const $ = cheerio.load(data);
     const results = [];
 
-    $('.listupd .utao, .listupd .block').each((i, el) => {
-      const a = $(el).find('a');
-      const title = $(el).find('h3, .title, .entry-title').text().trim();
-      const img = $(el).find('img');
-      const thumb = img.attr('data-lazy-src') || img.attr('data-src') || img.attr('src') || '';
-      const link = a.attr('href') || '';
+    $('.list-anime').each((i, el) => {
+      const a = $(el).closest('a');
+      const href = a.attr('href') || $(el).parent('a').attr('href') || '';
+      const title = $(el).find('p').text().trim();
+      const img = $(el).find('img').attr('data-original') || $(el).find('img').attr('src') || '';
       
-      let slug = '';
-      if (link) {
-        const parts = link.replace(/\/$/, '').split('/');
-        slug = parts[parts.length - 1];
+      let thumb = img;
+      if (thumb && thumb.startsWith('/')) {
+        thumb = TARGET_URL + thumb;
       }
+      
+      const slug = href.replace(/\/$/, '').split('/').pop();
 
-      results.push({
-        title,
-        thumb,
-        slug
-      });
+      if (title && slug) {
+        results.push({
+          title,
+          thumb,
+          slug
+        });
+      }
     });
 
     res.json(results);
