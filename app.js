@@ -370,52 +370,57 @@ class AnimeAPI {
     return { ok: false };
   }
 
+  async checkEndpointWithProxyFallback(url) {
+    // 1. Coba langsung
+    let check = await this.checkEndpoint(url);
+    if (check.ok) return { ok: true, type: check.type, proxy: '' };
+
+    // 2. Coba via CORS proxy 1
+    check = await this.checkEndpoint(url, CONFIG.CORS_PROXIES[0]);
+    if (check.ok) return { ok: true, type: check.type, proxy: CONFIG.CORS_PROXIES[0] };
+
+    // 3. Coba via CORS proxy 2
+    check = await this.checkEndpoint(url, CONFIG.CORS_PROXIES[1]);
+    if (check.ok) return { ok: true, type: check.type, proxy: CONFIG.CORS_PROXIES[1] };
+
+    return { ok: false };
+  }
+
   /**
    * Probe semua API URL untuk cari yang hidup.
    * Hasilnya di-cache supaya tidak probe ulang terus.
    */
   async probeApis() {
     if (this.baseUrl) {
-      const check = await this.checkEndpoint(this.baseUrl, this._proxyPrefix);
+      const check = await this.checkEndpointWithProxyFallback(this.baseUrl);
       if (check.ok) {
         this.apiType = check.type;
+        this._proxyPrefix = check.proxy;
         state.apiConnected = true;
         updateApiStatus(true);
         return this.baseUrl;
       }
     }
 
-    // Coba setiap URL
-    for (const url of CONFIG.API_URLS) {
-      const check = await this.checkEndpoint(url);
-      if (check.ok) {
-        this.baseUrl = url;
-        this.apiType = check.type;
-        localStorage.setItem('allunime_working_api', url);
-        localStorage.setItem('allunime_api_type', check.type);
-        state.apiConnected = true;
-        updateApiStatus(true);
-        console.log(`✅ API connected: ${url} (${check.type})`);
-        return url;
-      }
-    }
+    // Cek semua fallbacks secara paralel (sangat cepat!)
+    const promises = CONFIG.API_URLS.map(async (url) => {
+      const check = await this.checkEndpointWithProxyFallback(url);
+      return { url, check };
+    });
 
-    // Coba via CORS proxy
-    for (const proxy of CONFIG.CORS_PROXIES) {
-      for (const url of CONFIG.API_URLS) {
-        const check = await this.checkEndpoint(url, proxy);
-        if (check.ok) {
-          this.baseUrl = url;
-          this.apiType = check.type;
-          this._proxyPrefix = proxy;
-          localStorage.setItem('allunime_working_api', url);
-          localStorage.setItem('allunime_api_type', check.type);
-          state.apiConnected = true;
-          updateApiStatus(true);
-          console.log(`✅ API connected via proxy: ${url} (${check.type})`);
-          return url;
-        }
-      }
+    const results = await Promise.all(promises);
+    const working = results.find(r => r.check.ok);
+
+    if (working) {
+      this.baseUrl = working.url;
+      this.apiType = working.check.type;
+      this._proxyPrefix = working.check.proxy;
+      localStorage.setItem('allunime_working_api', working.url);
+      localStorage.setItem('allunime_api_type', working.check.type);
+      state.apiConnected = true;
+      updateApiStatus(true);
+      console.log(`✅ Connected to: ${working.url} (${working.check.type})`);
+      return working.url;
     }
 
     state.apiConnected = false;
@@ -1118,20 +1123,31 @@ function updateApiUrl() {
   const url = input.value.trim().replace(/\/$/, '');
 
   if (url) {
-    api.baseUrl = url;
-    api._proxyPrefix = null;
-    localStorage.setItem('allunime_working_api', url);
     showToast('🔄 Menghubungkan ke API...', 'info');
 
-    api._rawFetch('/home').then(() => {
-      state.apiConnected = true;
-      updateApiStatus(true);
-      showToast('✅ API terhubung! Memuat data...', 'success');
-      // Hapus cache lama supaya refresh
-      CacheManager.cleanup();
-      loadHomeData();
+    api.checkEndpointWithProxyFallback(url).then((check) => {
+      if (check.ok) {
+        api.baseUrl = url;
+        api.apiType = check.type;
+        api._proxyPrefix = check.proxy;
+        state.apiConnected = true;
+        updateApiStatus(true);
+        
+        localStorage.setItem('allunime_working_api', url);
+        localStorage.setItem('allunime_api_type', check.type);
+        
+        showToast(`✅ Terhubung! Tipe API: ${check.type === 'eksa' ? 'Eksa' : 'Standar'}`, 'success');
+        
+        // Hapus cache lama supaya refresh
+        CacheManager.cleanup();
+        loadHomeData();
+      } else {
+        showToast('❌ Gagal terhubung. Periksa URL API Anda.', 'error');
+        state.apiConnected = false;
+        updateApiStatus(false);
+      }
     }).catch(() => {
-      showToast('❌ Gagal terhubung. Periksa URL.', 'error');
+      showToast('❌ Gagal terhubung. Periksa koneksi Anda.', 'error');
       state.apiConnected = false;
       updateApiStatus(false);
     });
